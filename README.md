@@ -15,6 +15,8 @@ Technologies
 -tailwindcss - the css library used in building the UI
 -jsPdf - the package used in exporting the documents.
 -react-toastify - the package used in making notification to user
+-react-icon - the package used to get icons
+-headlessUI - used to utilise built in component tailwind UI
 
 
 npm run dev to start development.
