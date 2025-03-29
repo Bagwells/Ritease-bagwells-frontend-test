@@ -21,3 +21,5 @@ Technologies
 
 npm run dev to start development.
 Project was deployed on Vercel.
+
+if I had more time, I would have written a cleaner code and do a better UI than what I have. I saw the mail to this assessment late. It was found in a junk folder.
