@@ -62,24 +62,21 @@ export default function HomeScreen() {
 
   const handleFileUpload = (e: DragEvent | ChangeEvent<HTMLInputElement>) => {
     const file = 'dataTransfer' in e ? e.dataTransfer.files?.[0] : (e.target as HTMLInputElement).files?.[0];
-    if(file) {
-      if (file.type === 'application/pdf') {
+    if (file) {
+      if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
         const reader = new FileReader();
         reader.onloadend = () => {
           if (typeof reader.result === 'string') {
             setUploadedFile({
               url: reader.result,
-              type: 'pdf'
+              type: file.type === 'application/pdf' ? 'pdf' : 'image',
             });
           }
         };
         reader.readAsDataURL(file);
+        toast.success('File upload successful');
       } else {
-        setUploadedFile({
-          url: URL.createObjectURL(file),
-          type: 'image'
-        });
-      toast.success('File upload successful')
+        toast.error('Unsupported file type. Please upload a PDF or image.');
       }
     }
   };
@@ -119,35 +116,32 @@ export default function HomeScreen() {
 
 
   const handleMouseDown = (event: React.MouseEvent) => {
-    event.preventDefault(); 
+    event.preventDefault();
     event.stopPropagation();
-    if ((selectedTool === 'draw' || selectedTool === 'highlight') && documentRef.current) {
-      const rect = documentRef.current?.getBoundingClientRect();
-      if (!rect) return;
   
+    if ((selectedTool === 'draw' || selectedTool === 'highlight') && documentRef.current) {
+      const rect = documentRef.current.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
   
-      if (selectedTool === 'draw') {
-        setAnnotations((prev) => [
-          ...prev,
-          { type: 'draw', x, y, color: currentColor, page: currentPage, path: `M${x},${y}`, width: 0, height: 0 },
-        ]);
-      } else if (selectedTool === 'highlight') {
-        setAnnotations((prev) => [
-          ...prev,
-          { type: 'highlight', x, y, color: currentColor, page: currentPage, width: 0, height: 20 }, 
-        ]);
-      }
-
+      const newAnnotation = {
+        type: selectedTool,
+        x,
+        y,
+        color: currentColor,
+        page: currentPage,
+        ...(selectedTool === 'draw'
+          ? { path: `M${x},${y}`, width: 0, height: 0 }
+          : { width: 0, height: 20 }),
+      };
+  
+      setAnnotations((prev) => [...prev, newAnnotation]);
       setIsDrawing(true);
     }
   };
   
   const handleMouseMove = (event: React.MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if ((selectedTool === 'draw' || selectedTool === 'highlight') && annotations.length > 0) {
+    if (isDrawing && annotations.length > 0) {
       const rect = documentRef.current?.getBoundingClientRect();
       if (!rect) return;
   
@@ -157,9 +151,13 @@ export default function HomeScreen() {
       setAnnotations((prev) => {
         const updatedAnnotations = [...prev];
         const lastAnnotation = updatedAnnotations[updatedAnnotations.length - 1];
-        if (lastAnnotation.type === 'draw' || lastAnnotation.type === 'highlight' ) {
+  
+        if (lastAnnotation.type === 'draw') {
           lastAnnotation.path += ` L${x},${y}`;
+        } else if (lastAnnotation.type === 'highlight') {
+          lastAnnotation.width = x - lastAnnotation.x;
         }
+  
         return updatedAnnotations;
       });
     }
@@ -498,18 +496,16 @@ export default function HomeScreen() {
 
             {/* Document Viewer with Annotations */}
             {uploadedFile && (
-              <div 
+              <div
                 ref={documentRef}
                 onMouseDown={(event) => {
-                  if (selectedTool === 'erase') handleErase(event); 
                   if (selectedTool === 'erase') handleErase(event);
                   if (selectedTool === 'underline') handleUnderline(event);
                   if (selectedTool === 'comment') handleComment(event);
-                  if (selectedTool === 'draw' || selectedTool === 'signature') handleMouseDown(event);
+                  if (selectedTool === 'draw' || selectedTool === 'highlight') handleMouseDown(event);
                 }}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
-                onClick={handleAnnotation}
                 className="relative w-full h-[600px] overflow-auto border rounded-lg"
               >
                 {uploadedFile.type === 'pdf' ? (
@@ -528,15 +524,14 @@ export default function HomeScreen() {
                 )}
 
                 {activeAnnotation && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: activeAnnotation.x,
-                      top: activeAnnotation.y,
-                      zIndex: 10,
-                    }}
-                  >
-                    
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: activeAnnotation.x,
+                        top: activeAnnotation.y,
+                        zIndex: 10,
+                      }}
+                    >
                       <textarea
                         autoFocus
                         onBlur={(e) => {
@@ -553,15 +548,14 @@ export default function HomeScreen() {
                                 text: commentText,
                                 width: activeAnnotation.width,
                                 height: 20,
-                              }
+                              },
                             ]);
                           }
-                          setActiveAnnotation(null);
+                          setActiveAnnotation(null); // Clearing activeAnnotation here
                         }}
                         className="border border-gray-300 rounded px-2 py-1 text-sm text-blue-400 placeholder:text-blue-400"
                         placeholder="Enter comment"
-                      />
-                    
+                      />                
                   </div>
                 )}
 
@@ -569,43 +563,60 @@ export default function HomeScreen() {
                 {annotations
                   .filter((annotation) => annotation.page === currentPage)
                   .map((annotation, index) => {
-                    if (annotation.type === 'draw' || annotation.type === 'highlight') {
-                      return (
-                        <svg
-                          key={index}
-                          style={{
-                            position: 'absolute',
-                            left: 0,
-                            top: 0,
-                            pointerEvents: 'none',
-                          }}
-                          width="100%"
-                          height="100%"
-                        >
-                          <path
-                            d={annotation.path}
-                            stroke={annotation.color}
-                            strokeWidth={annotation.type === 'draw' ? 2 : 4}
-                            fill="none"
+                    switch (annotation.type) {
+                      case 'draw':
+                        return (
+                          <svg
+                            key={index}
+                            style={{
+                              position: 'absolute',
+                              left: 0,
+                              top: 0,
+                              pointerEvents: 'none',
+                            }}
+                            width="100%"
+                            height="100%"
+                          >
+                            <path
+                              d={annotation.path}
+                              stroke={annotation.color}
+                              strokeWidth={2}
+                              fill="none"
+                            />
+                          </svg>
+                        );
+                      case 'highlight':
+                        return (
+                          <div
+                            key={index}
+                            style={{
+                              position: 'absolute',
+                              left: annotation.x,
+                              top: annotation.y,
+                              width: annotation.width,
+                              height: annotation.height,
+                              backgroundColor: annotation.color,
+                              opacity: 0.4,
+                            }}
                           />
-                        </svg>
-                      );
-                    } else if (annotation.type === 'underline') {
-                      return (
-                        <div
-                          key={index}
-                          style={{
-                            position: 'absolute',
-                            left: annotation.x,
-                            top: annotation.y,
-                            width: annotation.width,
-                            height: '2px',
-                            backgroundColor: annotation.color,
-                          }}
-                        />
-                      );
+                        );
+                      case 'underline':
+                        return (
+                          <div
+                            key={index}
+                            style={{
+                              position: 'absolute',
+                              left: annotation.x,
+                              top: annotation.y,
+                              width: annotation.width,
+                              height: '2px',
+                              backgroundColor: annotation.color,
+                            }}
+                          />
+                        );
+                      default:
+                        return null;
                     }
-                    return null;
                   })}
               </div>
             )}
